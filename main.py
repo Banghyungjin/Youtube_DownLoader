@@ -1,22 +1,18 @@
 """
 made by HyungJin Bang
 """
-
-import os
 import sys
-import re
+import os.path
 from functools import partial
-
 from PyQt5 import Qt
 from PyQt5.QtWidgets import *
-from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import *
-from PyQt5.QtGui import QFontDatabase, QFont
+from PyQt5.QtGui import QFont
 import configparser
 from qt_material import apply_stylesheet
 import webbrowser
+import threading
 from pytube import YouTube
-
 
 def open_directory():  # 저장 공간 열기
     config_parser = configparser.ConfigParser()
@@ -32,10 +28,7 @@ def open_browser():  # 웹 브라우저 열기
     webbrowser.open(url)
 
 
-
-
-
-class YoutubeDownloader(QWidget):
+class YoutubeDownloader(QWidget, threading.Thread):
 
     def config_generator(self):
         # 설정파일 만들기
@@ -82,7 +75,6 @@ class YoutubeDownloader(QWidget):
     def save_video(self):  # 동영상 저장
         url = self.input_url.text()
         try:
-            print(url)
             self.youtube = YouTube(url)
             youtube_streams = self.youtube.streams
             video_vertical = QVBoxLayout()
@@ -98,21 +90,28 @@ class YoutubeDownloader(QWidget):
             video_vertical.addWidget(video_title)
             video_vertical.addStretch(1)
             video_len = QLabel(f'비디오 길이\n - {self.youtube.length // 3600} 시간 {(self.youtube.length % 3600) // 60} 분 {self.youtube.length % 60} 초')
-            print(type(self.youtube.length))
             video_len.setFont(QFont("궁서", 15))
             video_len.setStyleSheet("Color: #6495ED")
             video_vertical.addWidget(video_len)
             video_vertical.addStretch(1)
 
-            for i, stream in enumerate(youtube_streams.filter(adaptive=True, file_extension="mp4", mime_type="video/mp4")):
-                print(i, stream, type(stream), stream.resolution)
+            for i, stream in enumerate(
+                    youtube_streams.filter(progressive=True)):
+                # print(i, stream, type(stream), stream.resolution)
                 video_horizontal = QHBoxLayout()
                 input_save_btn = QPushButton(f'해상도 = {stream.resolution}\tfps = {stream.fps}')
-                input_save_btn.clicked.connect(partial(self.save_btn_clicked,youtube_streams , stream.itag))
+                input_save_btn.clicked.connect(partial(self.save_btn_clicked, youtube_streams, stream.itag))
                 video_horizontal.addWidget(input_save_btn)
                 video_vertical.addLayout(video_horizontal)
                 video_vertical.addStretch(1)
-            # video_horizontal.addLayout(video_vertical)
+            mp3_btn = QPushButton("mp3 다운로드")
+            mp3_btn.clicked.connect(partial(self.mp3_download, youtube_streams))
+            video_vertical.addWidget(mp3_btn)
+            video_vertical.addStretch(1)
+            exit_btn = QPushButton("뒤로가기")
+            exit_btn.clicked.connect(self.exit_save)
+            video_vertical.addWidget(exit_btn)
+            video_vertical.addStretch(1)
             self.save_dialog.setWindowTitle("Available formats")
             self.save_dialog.setWindowModality(Qt.ApplicationModal)
             self.save_dialog.setLayout(video_vertical)
@@ -120,18 +119,31 @@ class YoutubeDownloader(QWidget):
         except:
             print("error")
 
+    def mp3_download(self, input_stream):
+        config_parser = configparser.ConfigParser()
+        config_parser.read('config.ini', encoding='utf-8')
+        sound_stream = input_stream.get_by_itag(140)
+        sound_stream.download(output_path=config_parser['directory']['directory'], filename=f'{self.youtube.title}_sound')
+        self.save_dialog.close()
+        self.save_dialog.destroy()
+        self.save_dialog = QDialog()
+
     def save_btn_clicked(self, input_stream, itag):
         stream = input_stream.get_by_itag(itag)
         config_parser = configparser.ConfigParser()
         config_parser.read('config.ini', encoding='utf-8')
         stream.download(output_path=config_parser['directory']['directory'])
-        print("done")
-        self.youtube = None
         self.save_dialog.close()
+        self.save_dialog.destroy()
+        self.save_dialog = QDialog()
+
+    def exit_save(self):
+        self.save_dialog.close()
+        self.save_dialog.destroy()
+        self.save_dialog = QDialog()
 
     def __init__(self):
         super().__init__()
-
         self.save_dialog = QDialog()
         self.input_url = QLineEdit(self)
         self.datetime = QDateTime.currentDateTime()
@@ -182,19 +194,16 @@ class YoutubeDownloader(QWidget):
         # 박스 레이아웃 생성
         box_1 = QHBoxLayout()
         box_1.addStretch(1)
-
         box_1.addWidget(date_label)
         box_1.addStretch(1)
 
         box_2 = QHBoxLayout()
         box_2.addStretch(1)
-
         box_2.addWidget(self.directory_label)
         box_2.addStretch(1)
 
         box_3 = QHBoxLayout()
         box_3.addStretch(1)
-
         box_3.addWidget(manual_label)
         box_3.addStretch(1)
 
